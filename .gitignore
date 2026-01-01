@@ -1,0 +1,8 @@
+# Jupyter Notebooks (if you want to ignore checkpoint files)
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Environment files (critical for API keys)
+.env
+.env.local
+.env.*.local
