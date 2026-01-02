@@ -1,6 +1,6 @@
 # Langchain + Langgraph Examples
 
-A small collection of examples demonstrating integration between LangChain, Langgraph, and Hugging Face models. This repository contains notebooks and example scripts for running local experiments and model endpoints.
+A small collection of examples demonstrating integration between LangChain, Langgraph, and different models. This repository contains notebooks and example scripts for running local experiments and model endpoints.
 
 ## How to Initialize the Repo
 
