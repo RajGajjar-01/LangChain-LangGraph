@@ -20,7 +20,7 @@ def get_weather(city:str) -> dict:
 search = DuckDuckGoSearchRun()
 
 llm = HuggingFaceEndpoint(
-    repo_id="moonshotai/Kimi-K2-Instruct-0905",
+    repo_id="moonshotai/Kimi-K2.5",
     task="text-generation",
     temperature=0.6,  # Recommended by Moonshot AI
     max_new_tokens=512,

@@ -27,4 +27,8 @@ dependencies = [
     "langchain-mcp-adapters>=0.2.1",
     "groq>=1.0.0",
     "python-lsp-server>=1.14.0",
+    "langchain-nvidia-ai-endpoints>=1.2.0",
+    "langchain-fireworks>=1.1.0",
+    "zhipuai>=2.1.5.20250825",
+    "zai-sdk>=0.0.3.4",
 ]
