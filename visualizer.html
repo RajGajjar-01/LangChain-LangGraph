@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MPU6050 Live 3D Visualizer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0f0f13; color: #e0e0e0; font-family: monospace; overflow: hidden; }
+    canvas { display: block; }
+
+    #hud {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid #333;
+      border-radius: 10px;
+      padding: 16px 20px;
+      min-width: 200px;
+    }
+    #hud h2 { font-size: 13px; color: #888; margin-bottom: 12px; letter-spacing: 2px; }
+    .val-row { display: flex; justify-content: space-between; margin: 6px 0; font-size: 14px; }
+    .label { color: #888; }
+    .pitch-val { color: #5eead4; }
+    .roll-val  { color: #a78bfa; }
+    .yaw-val   { color: #fbbf24; }
+
+    #status {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: rgba(0,0,0,0.5);
+    }
+    .connected    { color: #4ade80; border: 1px solid #166534; }
+    .disconnected { color: #f87171; border: 1px solid #7f1d1d; }
+
+    #bars {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid #333;
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .bar-wrap { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+    .bar-label { width: 40px; color: #888; }
+    .bar-track { width: 140px; height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
+    .bar-fill  { height: 100%; border-radius: 4px; transition: width 0.05s; }
+    .bar-pitch { background: #5eead4; }
+    .bar-roll  { background: #a78bfa; }
+    .bar-yaw   { background: #fbbf24; }
+  </style>
+</head>
+<body>
+
+<div id="hud">
+  <h2>MPU6050 LIVE</h2>
+  <div class="val-row"><span class="label">Pitch</span><span class="pitch-val" id="v-pitch">0.00°</span></div>
+  <div class="val-row"><span class="label">Roll</span> <span class="roll-val"  id="v-roll"> 0.00°</span></div>
+  <div class="val-row"><span class="label">Yaw</span>  <span class="yaw-val"   id="v-yaw">  0.00°/s</span></div>
+</div>
+
+<div id="bars">
+  <div class="bar-wrap">
+    <span class="bar-label">Pitch</span>
+    <div class="bar-track"><div class="bar-fill bar-pitch" id="b-pitch" style="width:50%"></div></div>
+  </div>
+  <div class="bar-wrap">
+    <span class="bar-label">Roll</span>
+    <div class="bar-track"><div class="bar-fill bar-roll" id="b-roll" style="width:50%"></div></div>
+  </div>
+  <div class="bar-wrap">
+    <span class="bar-label">Yaw</span>
+    <div class="bar-track"><div class="bar-fill bar-yaw" id="b-yaw" style="width:50%"></div></div>
+  </div>
+</div>
+
+<div id="status" class="disconnected">● Connecting...</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ── Three.js scene setup ──────────────────────────────────────────
+const scene    = new THREE.Scene();
+const camera   = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+camera.position.set(0, 1.5, 4);
+camera.lookAt(0, 0, 0);
+
+// background
+scene.background = new THREE.Color(0x0f0f13);
+scene.fog = new THREE.Fog(0x0f0f13, 8, 20);
+
+// lights
+const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambient);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+dirLight.position.set(5, 8, 5);
+dirLight.castShadow = true;
+scene.add(dirLight);
+const fillLight = new THREE.DirectionalLight(0x8888ff, 0.3);
+fillLight.position.set(-5, -2, -5);
+scene.add(fillLight);
+
+// ── Build the PCB board model ─────────────────────────────────────
+const board = new THREE.Group();
+
+// main PCB — green board
+const pcbGeo = new THREE.BoxGeometry(3, 0.08, 2);
+const pcbMat = new THREE.MeshPhongMaterial({ color: 0x1a5c2a, shininess: 60 });
+const pcb = new THREE.Mesh(pcbGeo, pcbMat);
+pcb.castShadow = true;
+board.add(pcb);
+
+// copper traces (thin yellow lines on surface)
+const traceMat = new THREE.MeshPhongMaterial({ color: 0xc8a020 });
+for (let i = 0; i < 6; i++) {
+  const tg = new THREE.BoxGeometry(2.4, 0.005, 0.03);
+  const t  = new THREE.Mesh(tg, traceMat);
+  t.position.set(0, 0.043, -0.6 + i * 0.24);
+  board.add(t);
+}
+
+// chip in center
+const chipGeo = new THREE.BoxGeometry(0.6, 0.06, 0.6);
+const chipMat = new THREE.MeshPhongMaterial({ color: 0x111111, shininess: 120 });
+const chip = new THREE.Mesh(chipGeo, chipMat);
+chip.position.set(0, 0.07, 0);
+board.add(chip);
+
+// chip label dots
+const dotMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+const dotGeo = new THREE.SphereGeometry(0.02, 6, 6);
+const dot = new THREE.Mesh(dotGeo, dotMat);
+dot.position.set(-0.22, 0.1, -0.22);
+board.add(dot);
+
+// pins on both sides (gold)
+const pinMat  = new THREE.MeshPhongMaterial({ color: 0xd4a030, shininess: 200 });
+const pinGeo  = new THREE.BoxGeometry(0.05, 0.14, 0.05);
+for (let i = 0; i < 19; i++) {
+  const pinL = new THREE.Mesh(pinGeo, pinMat);
+  pinL.position.set(-1.55, -0.04, -0.9 + i * 0.1);
+  board.add(pinL);
+  const pinR = new THREE.Mesh(pinGeo, pinMat);
+  pinR.position.set(1.55, -0.04, -0.9 + i * 0.1);
+  board.add(pinR);
+}
+
+// USB port (silver box at one end)
+const usbGeo = new THREE.BoxGeometry(0.4, 0.15, 0.2);
+const usbMat = new THREE.MeshPhongMaterial({ color: 0x999999, shininess: 180 });
+const usb = new THREE.Mesh(usbGeo, usbMat);
+usb.position.set(0, 0.04, -1.1);
+board.add(usb);
+
+// small LED
+const ledGeo = new THREE.BoxGeometry(0.06, 0.05, 0.06);
+const ledMat = new THREE.MeshPhongMaterial({ color: 0x00ffaa, emissive: 0x00aa66, shininess: 200 });
+const led = new THREE.Mesh(ledGeo, ledMat);
+led.position.set(0.5, 0.065, -0.8);
+board.add(led);
+
+scene.add(board);
+
+// grid floor
+const grid = new THREE.GridHelper(20, 30, 0x222222, 0x1a1a1a);
+grid.position.y = -1.5;
+scene.add(grid);
+
+// axes helper (small, at origin)
+const axes = new THREE.AxesHelper(0.6);
+board.add(axes);
+
+// ── Rotation state ────────────────────────────────────────────────
+// target angles from sensor (radians)
+let targetPitch = 0, targetRoll = 0, targetYaw = 0;
+// current smoothed angles
+let curPitch = 0, curRoll = 0, curYaw = 0;
+
+// ── WebSocket ─────────────────────────────────────────────────────
+const status = document.getElementById('status');
+let ws;
+
+function connect() {
+  ws = new WebSocket('ws://localhost:8765');
+
+  ws.onopen = () => {
+    status.textContent = '● Connected to ESP32';
+    status.className = 'connected';
+  };
+
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    targetPitch = d.pitch * Math.PI / 180;
+    targetRoll  = d.roll  * Math.PI / 180;
+    targetYaw  += d.yaw   * 0.02 * Math.PI / 180; // integrate yaw rate
+
+    document.getElementById('v-pitch').textContent = d.pitch.toFixed(2) + '°';
+    document.getElementById('v-roll').textContent  = d.roll.toFixed(2)  + '°';
+    document.getElementById('v-yaw').textContent   = d.yaw.toFixed(2)   + '°/s';
+
+    // bar indicators — map -90..90 to 0..100%
+    document.getElementById('b-pitch').style.width = (50 + d.pitch / 1.8) + '%';
+    document.getElementById('b-roll').style.width  = (50 + d.roll  / 1.8) + '%';
+    document.getElementById('b-yaw').style.width   = (50 + Math.min(Math.max(d.yaw, -90), 90) / 1.8) + '%';
+  };
+
+  ws.onclose = () => {
+    status.textContent = '● Disconnected — retrying...';
+    status.className = 'disconnected';
+    setTimeout(connect, 2000); // auto-reconnect
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+connect();
+
+// ── Animation loop ────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  // smooth interpolation — makes rotation look fluid not jumpy
+  const smooth = 0.15;
+  curPitch = lerp(curPitch, targetPitch, smooth);
+  curRoll  = lerp(curRoll,  targetRoll,  smooth);
+  curYaw   = lerp(curYaw,   targetYaw,   smooth);
+
+  board.rotation.x = curPitch;
+  board.rotation.z = curRoll;
+  board.rotation.y = curYaw;
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// ── Resize handler ────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
